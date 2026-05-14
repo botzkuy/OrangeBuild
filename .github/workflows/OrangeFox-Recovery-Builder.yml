@@ -1,4 +1,4 @@
-name: OrangeFox - Oppo A5s (22.04 Forced Debug)
+name: OrangeFox - Oppo A5s (GitLab Token Build)
 
 on:
   workflow_dispatch:
@@ -18,8 +18,8 @@ on:
 
 jobs:
   build:
-    name: Build OFRP on 22.04
-    runs-on: ubuntu-22.04 # <--- Paksa pakai 22.04
+    name: Build OFRP for CPH1909
+    runs-on: ubuntu-22.04
     permissions:
       contents: write
     env:
@@ -39,86 +39,65 @@ jobs:
 
     - name: "Operasi Transplantasi: Pasang Legacy Tools (Python 2 & SSL 1.1)"
       run: |
-        # 1. Tambahkan repo Focal (20.04) HANYA untuk Python 2
+        # Menambahkan repo Focal untuk Python 2
         echo "deb http://dk.archive.ubuntu.com/ubuntu/ focal main universe" | sudo tee -a /etc/apt/sources.list
         sudo apt update
         
-        # 2. Pasang dependencies (Termasuk Python 2 dan libncurses5)
         sudo apt install -y git-core gnupg flex bison build-essential zip curl zlib1g-dev \
         gcc-multilib g++-multilib libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev \
         libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip fontconfig \
         libncurses5-dev rsync python2 python3 libncurses5
         
-        # 3. Download manual libssl1.1 (Karena di 22.04 sudah tidak ada)
+        # Download manual libssl1.1 (Wajib untuk signing Android 8.1/9.0)
         wget http://archive.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1.1.1f-1ubuntu2_amd64.deb
         sudo dpkg -i libssl1.1_1.1.1f-1ubuntu2_amd64.deb
         
-        # 4. Link Python 2 agar terbaca sebagai 'python'
         sudo ln -sf /usr/bin/python2 /usr/bin/python
 
-    - name: Setup Build Environment OrangeFox
+    - name: Sync Source via GitLab (With Token)
       run: |
-        git clone https://gitlab.com/OrangeFox/misc/scripts
-        cd scripts
-        sudo bash setup/android_build_env.sh
-      
-    - name: Hard-Sync via GitHub Mirror (Anti-Auth Error)
-      run: |
-        # 1. Bersihkan lingkungan Git agar tidak minta login
-        git config --global --unset-all http.proxy || true
         git config --global user.name "GitHub Actions"
         git config --global user.email "actions@github.com"
         
-        # 2. Buat folder kerja
         mkdir -p ${{ github.workspace }}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
         cd ${{ github.workspace }}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
         
-        # 3. Download tool 'repo'
+        # Install repo tool
         mkdir -p ~/bin
         curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
         chmod a+x ~/bin/repo
         sudo ln -sf ~/bin/repo /usr/bin/repo
         
-        # 4. INIT MENGGUNAKAN GITHUB MIRROR (Bukan GitLab)
-        # Kita gunakan mirror resmi OrangeFox di GitHub untuk menghindari blokir
-        repo init --no-repo-verify -u https://github.com/OrangeFoxRecovery/manifest.git -b fox_9.0 --depth=1
+        # INIT MENGGUNAKAN TOKEN GITLAB
+        # Format: https://oauth2:TOKEN@gitlab.com/...
+        repo init --no-repo-verify \
+          -u https://oauth2:${{ secrets.GITLAB_TOKEN }}@gitlab.com/OrangeFox/manifest.git \
+          -b fox_${{ github.event.inputs.MANIFEST_BRANCH }} --depth=1
         
-        # 5. SYNC (Gunakan opsi --no-tags dan --current-branch agar lebih ringan)
+        # Jalankan Sync
         repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
-        
-        # 6. VERIFIKASI AKHIR
-        if [ -f "build/envsetup.sh" ]; then
-          echo "✅ Sinkronisasi Berhasil via GitHub Mirror!"
-        else
-          echo "❌ Sinkronisasi Gagal lagi. Mencoba metode 'Nuclear'..."
-          exit 1
-        fi
-    - name: Build Recovery (With Absolute Path)
+
+    - name: Clone Device Tree
+      run: |
+        cd ${{ github.workspace }}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
+        # Clone device tree ke path yang benar
+        git clone ${{ github.event.inputs.DEVICE_TREE }} -b main ./device/oppo/${{ github.event.inputs.DEVICE_NAME }}
+
+    - name: Build Recovery (CPH1909)
       run: |
         cd ${{ github.workspace }}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
         
-        # Tambahkan pengaman: Jika file tidak ada, jangan lanjut
+        # Verifikasi dapur
         if [ ! -f "build/envsetup.sh" ]; then
-          echo "Dapur kosong! Tidak ada yang bisa dimasak."
-          ls -R .repo/manifests # Cek apakah manifest-nya saja yang terdownload
+          echo "❌ Dapur kosong! Sinkronisasi gagal."
           exit 1
         fi
         
-        # Mulai kompilasi
-        set -e
-        source build/envsetup.sh
+        # Proses masak
         export ALLOW_MISSING_DEPENDENCIES=true
         export LC_ALL="C"
+        source build/envsetup.sh
         
-        lunch omni_CPH1909-eng
-        make clean
-        mka recoveryimage
-    - name: Build Recovery
-      run: |
-        cd ${GITHUB_WORKSPACE}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
-        source build/envsetup.sh
-        export ALLOW_MISSING_DEPENDENCIES=true
-        export LC_ALL="C"
         lunch omni_${{ github.event.inputs.DEVICE_NAME }}-eng
         make clean
         mka recoveryimage
@@ -130,5 +109,8 @@ jobs:
         files: |
           ${{ github.workspace }}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/OrangeFox*.img
           ${{ github.workspace }}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/OrangeFox*.zip
-        name: OFRP-Unofficial-CPH1909-22.04
+        name: OrangeFox-Unofficial-${{ github.event.inputs.DEVICE_NAME }}
         tag_name: build-${{ github.run_id }}
+        body: |
+          Build Sukses untuk Oppo A5s (Android 8.1/9.0 basis)
+          Dibuat menggunakan Ubuntu 22.04 dengan GitLab Token.
