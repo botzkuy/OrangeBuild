@@ -1,75 +1,68 @@
-name: OrangeFox - Oppo A5s Android 8.1 Builder
+name: OrangeFox - Oppo A5s (22.04 Forced Debug)
 
 on:
   workflow_dispatch:
     inputs:
       MANIFEST_BRANCH:
-        description: 'OrangeFox Branch (Gunakan 9.0 untuk Android 8.1)'
+        description: 'OrangeFox Branch'
         required: true
         default: '9.0'
-        type: choice
-        options:
-          - '9.0'
-          - '11.0'
       DEVICE_TREE:
         description: 'Custom Recovery Tree'
         required: true
         default: 'https://github.com/ZG089/android_device_OPPO_CPH1909'
-      DEVICE_TREE_BRANCH:
-        description: 'Custom Recovery Tree Branch'
-        required: true
-        default: 'main'
-      DEVICE_PATH:
-        description: 'Specify your device path.'
-        required: true
-        default: 'device/oppo/CPH1909'
       DEVICE_NAME:
-        description: 'Specify your Device Codename.'
+        description: 'Codename'
         required: true
         default: 'CPH1909'
-      BUILD_TARGET:
-        description: 'Specify your Build Target'
-        required: true
-        default: 'recovery'
 
 jobs:
   build:
-    name: Build OFRP Android 8.1
-    runs-on: ubuntu-20.04 # WAJIB 20.04 untuk Android 8.1/9.0
+    name: Build OFRP on 22.04
+    runs-on: ubuntu-22.04 # <--- Paksa pakai 22.04
     permissions:
       contents: write
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
-    - name: Checkout Repository
+    - name: Checkout
       uses: actions/checkout@v3
 
-    - name: Cleanup Environment
+    - name: Pembersihan & Persiapan Debug
       uses: rokibhasansagar/slimhub_actions@main
 
-    - name: Set up Swap Space (24GB)
-      uses: pierotofy/set-swap-space@master
-      with:
-        swap-size-gb: 24
-      
-    - name: Install Legacy Build Dependencies
+    - name: Pasang Arsitektur i386 & Swap
       run: |
+        sudo dpkg --add-architecture i386
         sudo apt update
-        # Pustaka khusus untuk kompiler Android lama
+
+    - name: "Operasi Transplantasi: Pasang Legacy Tools (Python 2 & SSL 1.1)"
+      run: |
+        # 1. Tambahkan repo Focal (20.04) HANYA untuk Python 2
+        echo "deb http://dk.archive.ubuntu.com/ubuntu/ focal main universe" | sudo tee -a /etc/apt/sources.list
+        sudo apt update
+        
+        # 2. Pasang dependencies (Termasuk Python 2 dan libncurses5)
         sudo apt install -y git-core gnupg flex bison build-essential zip curl zlib1g-dev \
         gcc-multilib g++-multilib libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev \
         libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip fontconfig \
-        libncurses5-dev rsync python2 python3 libssl-dev
+        libncurses5-dev rsync python2 python3 libncurses5
         
-        # Setup Python 2 sebagai default (dibutuhkan Android 8.1)
+        # 3. Download manual libssl1.1 (Karena di 22.04 sudah tidak ada)
+        wget http://archive.ubuntu.com/ubuntu/pool/main/o/openssl/libssl1.1_1.1.1f-1ubuntu2_amd64.deb
+        sudo dpkg -i libssl1.1_1.1.1f-1ubuntu2_amd64.deb
+        
+        # 4. Link Python 2 agar terbaca sebagai 'python'
         sudo ln -sf /usr/bin/python2 /usr/bin/python
-        
+
+    - name: Setup Build Environment OrangeFox
+      run: |
         git clone https://gitlab.com/OrangeFox/misc/scripts
         cd scripts
         sudo bash setup/android_build_env.sh
       
-    - name: Sync OrangeFox Manifest
+    - name: Sync Source
       run: |
         mkdir -p ${GITHUB_WORKSPACE}/OrangeFox
         cd ${GITHUB_WORKSPACE}/OrangeFox
@@ -79,36 +72,22 @@ jobs:
         cd sync
         ./orangefox_sync.sh --branch ${{ github.event.inputs.MANIFEST_BRANCH }} --path ${GITHUB_WORKSPACE}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
 
-    - name: Clone Device Tree
+    - name: Build Recovery
       run: |
         cd ${GITHUB_WORKSPACE}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
-        git clone ${{ github.event.inputs.DEVICE_TREE }} -b ${{ github.event.inputs.DEVICE_TREE_BRANCH }} ./${{ github.event.inputs.DEVICE_PATH }}
-        cd ${{ github.event.inputs.DEVICE_PATH }}
-        echo "COMMIT_ID=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
-
-    - name: Build OrangeFox
-      run: |
-        cd ${GITHUB_WORKSPACE}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
-        # Set environment build
         source build/envsetup.sh
         export ALLOW_MISSING_DEPENDENCIES=true
         export LC_ALL="C"
-        
-        # Gunakan target lunch sesuai device tree
         lunch omni_${{ github.event.inputs.DEVICE_NAME }}-eng
-        
         make clean
-        mka ${{ github.event.inputs.BUILD_TARGET }}image
+        mka recoveryimage
 
-    - name: Upload to Release
+    - name: Upload Hasil Build
       uses: softprops/action-gh-release@v1
       if: success()
       with:
         files: |
           ${{ github.workspace }}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/OrangeFox*.img
           ${{ github.workspace }}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/OrangeFox*.zip
-        name: OrangeFox Android 8.1 for ${{ github.event.inputs.DEVICE_NAME }}
+        name: OFRP-Unofficial-CPH1909-22.04
         tag_name: build-${{ github.run_id }}
-        body: |
-          Sukses membangun OrangeFox untuk Oppo A5s berbasis Android 8.1/9.0.
-          Branch Manifest: ${{ github.event.inputs.MANIFEST_BRANCH }}
