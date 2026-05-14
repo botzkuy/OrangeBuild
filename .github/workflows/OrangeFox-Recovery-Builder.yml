@@ -62,32 +62,37 @@ jobs:
         cd scripts
         sudo bash setup/android_build_env.sh
       
-    - name: Hard-Sync Source (Tanpa Skrip Pembungkus)
+    - name: Hard-Sync via GitHub Mirror (Anti-Auth Error)
       run: |
-        # Buat folder kerja
-        mkdir -p ${{ github.workspace }}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
-        cd ${{ github.workspace }}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
-        
-        # Pastikan Git mengenal kita
+        # 1. Bersihkan lingkungan Git agar tidak minta login
+        git config --global --unset-all http.proxy || true
         git config --global user.name "GitHub Actions"
         git config --global user.email "actions@github.com"
         
-        # Download tool 'repo' manual (versi terbaru)
+        # 2. Buat folder kerja
+        mkdir -p ${{ github.workspace }}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
+        cd ${{ github.workspace }}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
+        
+        # 3. Download tool 'repo'
         mkdir -p ~/bin
         curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
         chmod a+x ~/bin/repo
         sudo ln -sf ~/bin/repo /usr/bin/repo
         
-        # INIT & SYNC (Kita tembak langsung ke Manifest)
-        # Tambahkan --no-repo-verify untuk menghindari error Python di 22.04
-        repo init --no-repo-verify -u https://gitlab.com/OrangeFox/manifest.git -b fox_9.0 --depth=1
+        # 4. INIT MENGGUNAKAN GITHUB MIRROR (Bukan GitLab)
+        # Kita gunakan mirror resmi OrangeFox di GitHub untuk menghindari blokir
+        repo init --no-repo-verify -u https://github.com/OrangeFoxRecovery/manifest.git -b fox_9.0 --depth=1
         
-        # Jalankan Sync dengan log yang terlihat (Force agar tidak gantung)
+        # 5. SYNC (Gunakan opsi --no-tags dan --current-branch agar lebih ringan)
         repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
         
-        # DEBUG: Cek apakah folder 'build' sudah muncul
-        ls -la build/envsetup.sh || echo "❌ FILE TETAP TIDAK ADA!"
-
+        # 6. VERIFIKASI AKHIR
+        if [ -f "build/envsetup.sh" ]; then
+          echo "✅ Sinkronisasi Berhasil via GitHub Mirror!"
+        else
+          echo "❌ Sinkronisasi Gagal lagi. Mencoba metode 'Nuclear'..."
+          exit 1
+        fi
     - name: Build Recovery (With Absolute Path)
       run: |
         cd ${{ github.workspace }}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
