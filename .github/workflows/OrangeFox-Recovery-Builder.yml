@@ -62,43 +62,50 @@ jobs:
         cd scripts
         sudo bash setup/android_build_env.sh
       
-    - name: Sync Source (With Path Fix)
+    - name: Hard-Sync Source (Tanpa Skrip Pembungkus)
       run: |
-        # Buat direktori kerja yang absolut
-        mkdir -p ${{ github.workspace }}/OrangeFox
-        cd ${{ github.workspace }}/OrangeFox
+        # Buat folder kerja
+        mkdir -p ${{ github.workspace }}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
+        cd ${{ github.workspace }}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
         
+        # Pastikan Git mengenal kita
         git config --global user.name "GitHub Actions"
         git config --global user.email "actions@github.com"
         
-        # Clone tool sync
-        git clone https://gitlab.com/OrangeFox/sync.git
-        cd sync
+        # Download tool 'repo' manual (versi terbaru)
+        mkdir -p ~/bin
+        curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
+        chmod a+x ~/bin/repo
+        sudo ln -sf ~/bin/repo /usr/bin/repo
         
-        # Jalankan sync dan PAKSA buat folder tujuan
-        # Kita tambahkan perintah 'mkdir' manual untuk memastikan folder ada
-        mkdir -p ${{ github.workspace }}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
-        ./orangefox_sync.sh --branch ${{ github.event.inputs.MANIFEST_BRANCH }} --path ${{ github.workspace }}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
+        # INIT & SYNC (Kita tembak langsung ke Manifest)
+        # Tambahkan --no-repo-verify untuk menghindari error Python di 22.04
+        repo init --no-repo-verify -u https://gitlab.com/OrangeFox/manifest.git -b fox_9.0 --depth=1
+        
+        # Jalankan Sync dengan log yang terlihat (Force agar tidak gantung)
+        repo sync -c -j$(nproc --all) --force-sync --no-clone-bundle --no-tags
+        
+        # DEBUG: Cek apakah folder 'build' sudah muncul
+        ls -la build/envsetup.sh || echo "❌ FILE TETAP TIDAK ADA!"
 
-    - name: Build Recovery (With Debug Check)
+    - name: Build Recovery (With Absolute Path)
       run: |
-        # Verifikasi apakah folder benar-benar ada sebelum 'cd'
-        if [ ! -d "${{ github.workspace }}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}" ]; then
-          echo "❌ ERROR: Folder fox_${{ github.event.inputs.MANIFEST_BRANCH }} TIDAK DITEMUKAN!"
-          ls -la ${{ github.workspace }}/OrangeFox
+        cd ${{ github.workspace }}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
+        
+        # Tambahkan pengaman: Jika file tidak ada, jangan lanjut
+        if [ ! -f "build/envsetup.sh" ]; then
+          echo "Dapur kosong! Tidak ada yang bisa dimasak."
+          ls -R .repo/manifests # Cek apakah manifest-nya saja yang terdownload
           exit 1
         fi
         
-        cd ${{ github.workspace }}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
-        
         # Mulai kompilasi
+        set -e
         source build/envsetup.sh
         export ALLOW_MISSING_DEPENDENCIES=true
         export LC_ALL="C"
         
-        # Gunakan target lunch sesuai input
-        lunch omni_${{ github.event.inputs.DEVICE_NAME }}-eng
-        
+        lunch omni_CPH1909-eng
         make clean
         mka recoveryimage
     - name: Build Recovery
