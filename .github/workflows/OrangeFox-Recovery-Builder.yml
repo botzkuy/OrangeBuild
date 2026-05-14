@@ -44,7 +44,7 @@ on:
 jobs:
   build:
     name: Build OFRP for Oppo A5s
-    runs-on: ubuntu-20.04 # Lebih stabil untuk build Android lama
+    runs-on: ubuntu-22.04 # Lebih stabil untuk build Android lama
     permissions:
       contents: write
     env:
