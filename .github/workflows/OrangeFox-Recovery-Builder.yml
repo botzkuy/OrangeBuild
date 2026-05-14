@@ -1,4 +1,4 @@
-name: OrangeFox - Builder
+name: OrangeFox - Oppo A5s Builder
 
 on:
   workflow_dispatch:
@@ -9,8 +9,8 @@ on:
         default: '12.1'
         type: choice
         options:
-          - 12.1
-          - 11.0
+          - '12.1'
+          - '11.0'
       DEVICE_TREE:
         description: 'Custom Recovery Tree'
         required: true
@@ -35,10 +35,6 @@ on:
         options:
           - recovery
           - boot
-      LDCHECK:
-        description: 'Path of blobs to check' 
-        required: true
-        default: 'system/bin/qseecomd'
       RECOVERY_INSTALLER:
         description: 'Include recovery installer zip'
         type: boolean
@@ -47,18 +43,18 @@ on:
 
 jobs:
   build:
-    name: Build OFRP by ${{ github.actor }}
-    runs-on: ubuntu-22.04 # Menggunakan 22.04 agar lebih stabil
+    name: Build OFRP for Oppo A5s
+    runs-on: ubuntu-20.04 # Lebih stabil untuk build Android lama
     permissions:
       contents: write
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
-    - name: Checkout
+    - name: Checkout Repository
       uses: actions/checkout@v3
 
-    - name: Clean-up Environment
+    - name: Cleanup Environment
       uses: rokibhasansagar/slimhub_actions@main
 
     - name: Set up Swap Space (24GB)
@@ -66,7 +62,7 @@ jobs:
       with:
         swap-size-gb: 24
       
-    - name: Build Environment Setup
+    - name: Install Build Dependencies
       run: |
         sudo apt update
         sudo apt install -y git-core gnupg flex bison build-essential zip curl zlib1g-dev gcc-multilib g++-multilib libc6-dev-i386 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip fontconfig libncurses5-dev rsync python2 python3
@@ -74,7 +70,7 @@ jobs:
         cd scripts
         sudo bash setup/android_build_env.sh
       
-    - name: Set-up Manifest & Sync
+    - name: Sync OrangeFox Manifest
       run: |
         mkdir -p ${GITHUB_WORKSPACE}/OrangeFox
         cd ${GITHUB_WORKSPACE}/OrangeFox
@@ -89,28 +85,29 @@ jobs:
         cd ${GITHUB_WORKSPACE}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
         git clone ${{ github.event.inputs.DEVICE_TREE }} -b ${{ github.event.inputs.DEVICE_TREE_BRANCH }} ./${{ github.event.inputs.DEVICE_PATH }}
         cd ${{ github.event.inputs.DEVICE_PATH }}
-        echo "COMMIT_ID=$(git rev-parse HEAD)" >> $GITHUB_ENV
+        echo "COMMIT_ID=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
 
-    - name: Building OrangeFox
+    - name: Build OrangeFox (CPH1909)
       run: |
         cd ${GITHUB_WORKSPACE}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}
         source build/envsetup.sh
         export ALLOW_MISSING_DEPENDENCIES=true
-        # Gunakan omni_ untuk Oppo A5s
+        export LC_ALL="C"
+        # Menggunakan omni untuk Oppo A5s
         lunch omni_${{ github.event.inputs.DEVICE_NAME }}-eng
         make clean
         mka ${{ github.event.inputs.BUILD_TARGET }}image
 
-    - name: Check Results & Release
-      if: success()
+    - name: Upload to Release
       uses: softprops/action-gh-release@v1
+      if: success()
       with:
         files: |
           ${{ github.workspace }}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/OrangeFox*.img
           ${{ github.workspace }}/OrangeFox/fox_${{ github.event.inputs.MANIFEST_BRANCH }}/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/OrangeFox*.zip
-        name: OrangeFox Unofficial for ${{ github.event.inputs.DEVICE_NAME }}
+        name: OrangeFox Unofficial CPH1909 - ${{ github.run_id }}
         tag_name: ${{ github.run_id }}
         body: |
-          Build Berhasil!
-          Branch: ${{ github.event.inputs.MANIFEST_BRANCH }}
-          Commit: ${{ env.COMMIT_ID }}
+          Build Sukses untuk Oppo A5s (CPH1909)
+          - Manifest: ${{ github.event.inputs.MANIFEST_BRANCH }}
+          - Device Tree Commit: ${{ env.COMMIT_ID }}
